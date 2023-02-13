@@ -1,0 +1,76 @@
+---
+title: "Ordinary least squares regression"
+author: "Ruixuan Tu (ruixuan.tu@wisc.edu)"
+date: "13 February 2023"
+---
+
+# Introduction
+
+Implementing ordinary least squares regression from scratch for 1D case. This homework is assigned on 8 February 2023.
+
+- Materials
+  - https://en.wikipedia.org/wiki/Ordinary_least_squares
+  - https://www.cs.princeton.edu/courses/archive/fall18/cos324/files/linear-regression.pdf
+  - https://setosa.io/ev/ordinary-least-squares-regression/
+- Dataset
+  - https://www.kaggle.com/datasets/siddheshmahajan/world-gdp-over-the-years
+
+# Setup
+
+```{r results='hide', message=FALSE, warning=FALSE}
+knitr::opts_knit$set(root.dir = "/Users/turx/Projects/machine-teaching-23sp/hw01-ols")
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+library(readxl)
+library(tidyverse)
+library(lubridate)
+library(ggplot2)
+data <- read_excel("Data_Extract_From_World_Development_Indicators.xlsx")
+data <- data %>%
+    na_if("..") %>%
+    rename(c_name = "Country Name", c_code = "Country Code", "2017" = "2017 [YR2017]", "2018" = "2018 [YR2018]") %>%
+    pivot_longer(cols = paste(c(1990, 2000, c(2010:2019))), names_to = "year", values_to = "gdp") %>%
+    filter(`Series Name` == "GDP (current US$)", `Series Code` == "NY.GDP.MKTP.CD") %>%
+    select(-`Series Name`, -`Series Code`) %>%
+    drop_na() %>%
+    mutate(gdp = as.numeric(gdp), year = as.numeric(year)) %>%
+    group_by(c_code)
+```
+
+# Definition of OLS Regression Function on 1D
+
+- input: vectors $\vec{x}, \vec{y}$
+- output: a list with two elements: $m$ and $b$, the slope and intercept of the regression line $y=mx+b$
+
+```{r}
+ols_regression <- function(x, y) {
+    x <- as.matrix(x)
+    y <- as.matrix(y)
+    m <- (mean(x * y) - mean(x) * mean(y)) / (mean(x^2) - mean(x)^2)
+    b <- mean(y) - m * mean(x)
+    return(list(m = m, b = b))
+}
+```
+
+# Demonstration of OLS Regression on USA GDP
+
+```{r}
+usa <- data %>%
+    filter(c_code == "USA") %>%
+    ungroup() %>%
+    select(year, gdp)
+
+usa %>%
+    ggplot(aes(x = year, y = gdp)) +
+    geom_point() +
+    geom_smooth(method = "lm", se = FALSE) +
+    labs(title = "GDP of the United States (with library)", x = "Year", y = "GDP", color = "blue") +
+    scale_y_continuous(labels = scales::dollar)
+
+l_ols <- ols_regression(usa$year, usa$gdp)
+usa %>%
+    ggplot(aes(x = year, y = gdp)) +
+    geom_point() +
+    geom_abline(intercept = l_ols$b, slope = l_ols$m, color = "red") +
+    labs(title = "GDP of the United States (without library)", x = "Year", y = "GDP") +
+    scale_y_continuous(labels = scales::dollar)
+```
