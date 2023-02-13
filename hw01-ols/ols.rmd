@@ -74,3 +74,27 @@ usa %>%
     labs(title = "GDP of the United States (without library)", x = "Year", y = "GDP") +
     scale_y_continuous(labels = scales::dollar)
 ```
+
+The learned coefficients for $y=mx+b$
+
+```{r}
+l_ols
+```
+
+Training set error: $E_{\text{train}} = \sum_{i=1}^n (y_i - \hat{y}_i)^2$
+
+```{r}
+error <- usa %>%
+    mutate(y_hat = l_ols$m * year + l_ols$b) %>%
+    mutate(error = (gdp - y_hat)^2) %>%
+    summarise(error = sum(error)) %>%
+    pull()
+error
+```
+
+MSE: $MSE = \frac{1}{n} E_{\text{train}}$
+
+```{r}
+MSE <- error / nrow(usa)
+MSE
+```
