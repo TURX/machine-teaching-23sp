@@ -1,0 +1,155 @@
+---
+title: "Estimate is not Truth"
+author: "Ruixuan Tu (ruixuan@cs.wisc.edu)"
+date: "16 February 2023"
+---
+
+Setup:
+
+```{r results='hide', message=FALSE, warning=FALSE}
+knitr::opts_knit$set(root.dir = "/Users/turx/Projects/machine-teaching-23sp/hw02-estimate-truth")
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+library(readxl)
+library(tidyverse)
+library(lubridate)
+library(ggplot2)
+```
+
+# Q2: Create your synthetic datasets
+
+The generated datasets are stored in `dfs`, a list of dataframes.
+
+```{r}
+gen_dataset <- function(n, a, b, sigma_sq) {
+    x <- runif(n, -1, 1)
+    eps <- rnorm(n, mean = 0, sd = sigma_sq)
+    y <- a * x + b + eps
+    return(tibble(x = x, y = y))
+}
+gen_datasets <- function(n_datasets, len_dataset, a, b, sigma_sq) {
+    dfs <- list(1:n_datasets)
+    for (i in 1:n_datasets) {
+        dfs[[i]] <- gen_dataset(len_dataset, a, b, sigma_sq)
+    }
+    return(dfs)
+}
+
+ds <- gen_datasets(n_datasets = 100, len_dataset = 10, a = 2, b = 3, sigma_sq = 1)
+write.csv(ds, "datasets-n10-s1.csv")
+ds[[1]]
+```
+
+# Q3: Run OLS on these 100 datasets
+
+Definition of OLS Regression Function on 1D from Homework 01:
+
+```{r}
+ols_regression <- function(x, y) {
+    x <- as.matrix(x)
+    y <- as.matrix(y)
+    m <- (mean(x * y) - mean(x) * mean(y)) / (mean(x^2) - mean(x)^2)
+    b <- mean(y) - m * mean(x)
+    return(list(m = m, b = b))
+}
+```
+
+Run OLS on the 100 datasets:
+
+```{r}
+gen_ols_results <- function(ds) {
+    ols_results <- list(1:100)
+    for (i in 1:100) {
+        ols_results[[i]] <- ols_regression(ds[[i]]$x, ds[[i]]$y)
+    }
+    ols_results_df <- tibble(
+        m = map_dbl(ols_results, "m"),
+        b = map_dbl(ols_results, "b")
+    )
+    return(ols_results_df)
+}
+
+ols_results_df <- gen_ols_results(ds)
+ols_results_df
+```
+
+```{r}
+gen_plot_estimates <- function(ols_results_df, n_datasets, len_dataset, sigma_sq) {
+    line_plot <- ggplot(ols_results_df) +
+        geom_abline(aes(slope = m, intercept = b, color = "estimate")) +
+        geom_abline(aes(slope = 2, intercept = 3, color = "truth")) +
+        xlim(-10, 10) +
+        ylim(-10, 10) +
+        ggtitle(bquote("OLS Estimates as Lines on" ~ .(n_datasets) ~ "Datasets with" ~ n == .(len_dataset) ~ "and" ~ sigma^2 == .(sigma_sq)))
+
+    pt_plot <- ggplot(ols_results_df) +
+        geom_point(aes(x = m, y = b, color = "estimate")) +
+        geom_point(aes(x = 2, y = 3, color = "truth")) +
+        xlim(-50, 50) +
+        ylim(-50, 50) +
+        ggtitle(bquote("OLS Estimates as Points on" ~ .(n_datasets) ~ "Datasets with" ~ n == .(len_dataset) ~ "and" ~ sigma^2 == .(sigma_sq)))
+
+    return(list(line_plot = line_plot, pt_plot = pt_plot))
+}
+
+plots <- gen_plot_estimates(ols_results_df, n_datasets = 100, len_dataset = 10, sigma_sq = 1)
+plots$line_plot
+ggsave("Q3-1.svg")
+plots$pt_plot
+ggsave("Q3-2.svg")
+```
+
+# Q4: Change the dataset size $n$
+
+## $n = 100$
+
+```{r}
+ds <- gen_datasets(n_datasets = 100, len_dataset = 100, a = 2, b = 3, sigma_sq = 1)
+write.csv(ds, "datasets-n100-s1.csv")
+ols_results_df <- gen_ols_results(ds)
+plots <- gen_plot_estimates(ols_results_df, n_datasets = 100, len_dataset = 100, sigma_sq = 1)
+plots$line_plot
+ggsave("Q4-1.svg")
+plots$pt_plot
+ggsave("Q4-2.svg")
+```
+
+## $n = 2$
+
+```{r}
+ds <- gen_datasets(n_datasets = 100, len_dataset = 2, a = 2, b = 3, sigma_sq = 1)
+write.csv(ds, "datasets-n2-s1.csv")
+ols_results_df <- gen_ols_results(ds)
+plots <- gen_plot_estimates(ols_results_df, n_datasets = 100, len_dataset = 2, sigma_sq = 1)
+plots$line_plot
+ggsave("Q4-3.svg")
+plots$pt_plot
+ggsave("Q4-4.svg")
+```
+
+# Q5: Change the noise level $\sigma^2$
+
+## $\sigma^2 = 0.01$
+
+```{r}
+ds <- gen_datasets(n_datasets = 100, len_dataset = 10, a = 2, b = 3, sigma_sq = 0.01)
+write.csv(ds, "datasets-n10-s0.01.csv")
+ols_results_df <- gen_ols_results(ds)
+plots <- gen_plot_estimates(ols_results_df, n_datasets = 100, len_dataset = 10, sigma_sq = 0.01)
+plots$line_plot
+ggsave("Q5-1.svg")
+plots$pt_plot
+ggsave("Q5-2.svg")
+```
+
+## $\sigma^2 = 100$
+
+```{r}
+ds <- gen_datasets(n_datasets = 100, len_dataset = 10, a = 2, b = 3, sigma_sq = 100)
+write.csv(ds, "datasets-n10-s100.csv")
+ols_results_df <- gen_ols_results(ds)
+plots <- gen_plot_estimates(ols_results_df, n_datasets = 100, len_dataset = 10, sigma_sq = 100)
+plots$line_plot
+ggsave("Q5-3.svg")
+plots$pt_plot
+ggsave("Q5-4.svg")
+```
