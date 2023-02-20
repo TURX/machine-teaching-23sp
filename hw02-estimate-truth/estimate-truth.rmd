@@ -34,7 +34,7 @@ gen_datasets <- function(n_datasets, len_dataset, a, b, sigma_sq) {
     return(dfs)
 }
 
-ds <- gen_datasets(n_datasets = 100, len_dataset = 10, a = 2, b = 3, sigma_sq = 1)
+ds <- gen_datasets(n_datasets = 100, len_dataset = 10, a = 2, b = -3, sigma_sq = 1)
 write.csv(ds, "datasets-n10-s1.csv")
 ds[[1]]
 ```
@@ -76,14 +76,14 @@ ols_results_df
 gen_plot_estimates <- function(ols_results_df, n_datasets, len_dataset, sigma_sq) {
     line_plot <- ggplot(ols_results_df) +
         geom_abline(aes(slope = m, intercept = b, color = "estimate")) +
-        geom_abline(aes(slope = 2, intercept = 3, color = "truth")) +
+        geom_abline(aes(slope = 2, intercept = -3, color = "truth")) +
         xlim(-10, 10) +
         ylim(-10, 10) +
         ggtitle(bquote("OLS Estimates as Lines on" ~ .(n_datasets) ~ "Datasets with" ~ n == .(len_dataset) ~ "and" ~ sigma^2 == .(sigma_sq)))
 
     pt_plot <- ggplot(ols_results_df) +
         geom_point(aes(x = m, y = b, color = "estimate")) +
-        geom_point(aes(x = 2, y = 3, color = "truth")) +
+        geom_point(aes(x = 2, y = -3, color = "truth")) +
         xlim(-50, 50) +
         ylim(-50, 50) +
         ggtitle(bquote("OLS Estimates as Points on" ~ .(n_datasets) ~ "Datasets with" ~ n == .(len_dataset) ~ "and" ~ sigma^2 == .(sigma_sq)))
@@ -103,7 +103,7 @@ ggsave("Q3-2.svg")
 ## $n = 100$
 
 ```{r}
-ds <- gen_datasets(n_datasets = 100, len_dataset = 100, a = 2, b = 3, sigma_sq = 1)
+ds <- gen_datasets(n_datasets = 100, len_dataset = 100, a = 2, b = -3, sigma_sq = 1)
 write.csv(ds, "datasets-n100-s1.csv")
 ols_results_df <- gen_ols_results(ds)
 plots <- gen_plot_estimates(ols_results_df, n_datasets = 100, len_dataset = 100, sigma_sq = 1)
@@ -116,7 +116,7 @@ ggsave("Q4-2.svg")
 ## $n = 2$
 
 ```{r}
-ds <- gen_datasets(n_datasets = 100, len_dataset = 2, a = 2, b = 3, sigma_sq = 1)
+ds <- gen_datasets(n_datasets = 100, len_dataset = 2, a = 2, b = -3, sigma_sq = 1)
 write.csv(ds, "datasets-n2-s1.csv")
 ols_results_df <- gen_ols_results(ds)
 plots <- gen_plot_estimates(ols_results_df, n_datasets = 100, len_dataset = 2, sigma_sq = 1)
@@ -131,7 +131,7 @@ ggsave("Q4-4.svg")
 ## $\sigma^2 = 0.01$
 
 ```{r}
-ds <- gen_datasets(n_datasets = 100, len_dataset = 10, a = 2, b = 3, sigma_sq = 0.01)
+ds <- gen_datasets(n_datasets = 100, len_dataset = 10, a = 2, b = -3, sigma_sq = 0.01)
 write.csv(ds, "datasets-n10-s0.01.csv")
 ols_results_df <- gen_ols_results(ds)
 plots <- gen_plot_estimates(ols_results_df, n_datasets = 100, len_dataset = 10, sigma_sq = 0.01)
@@ -144,7 +144,7 @@ ggsave("Q5-2.svg")
 ## $\sigma^2 = 100$
 
 ```{r}
-ds <- gen_datasets(n_datasets = 100, len_dataset = 10, a = 2, b = 3, sigma_sq = 100)
+ds <- gen_datasets(n_datasets = 100, len_dataset = 10, a = 2, b = -3, sigma_sq = 100)
 write.csv(ds, "datasets-n10-s100.csv")
 ols_results_df <- gen_ols_results(ds)
 plots <- gen_plot_estimates(ols_results_df, n_datasets = 100, len_dataset = 10, sigma_sq = 100)
