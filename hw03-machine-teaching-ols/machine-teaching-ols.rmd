@@ -2,6 +2,11 @@
 title: "hw3: machine teaching for OLS"
 author: "Ruixuan Tu (ruixuan@cs.wisc.edu)"
 date: "23 February 2023"
+output:
+  prettydoc::html_pretty:
+    theme: tactile
+    highlight: github
+    math: katex
 ---
 
 # Setup
@@ -113,6 +118,11 @@ run_q1 <- function(n) {
     ylim(-5, 5) +
     ggtitle(bquote("Synthetic Teacher: exact linear regression with n =" ~ .(n)))
   print(plot)
+  ggsave(filename = paste0("q1_n", n, ".svg"))
+  summary_model(model)
+}
+
+summary_model <- function(model) {
   cat("Estimated slope:", model$m, "\n")
   cat("Estimated intercept:", model$b, "\n")
   cat("True slope:", 2, "\n")
@@ -150,14 +160,14 @@ closeness <- function(m, b, mhat, bhat) {
 }
 
 # generate the set of all multi-subsets of size m from a set of size n given by index 1:n
-# an equivalent problem: generate the set of all vectors of n non-negative integers with sum m
-gen_vectors <- function(n, m) {
+# an equivalent problem: generate the set of all tuples of n non-negative integers with sum m
+gen_tuples <- function(n, m) {
   if (n == 1) {
     return(list(c(m)))
   } else {
     v <- list()
     for (i in 0:m) {
-      v <- c(v, lapply(gen_vectors(n - 1, m - i), function(x) c(i, x)))
+      v <- c(v, lapply(gen_tuples(n - 1, m - i), function(x) c(i, x)))
     }
     return(v)
   }
@@ -166,10 +176,10 @@ gen_vectors <- function(n, m) {
 # select the best multi-subset of size n from the dataset df with variables x and y
 select_data <- function(df, n) {
   # generate all multi-subsets of size n
-  vectors <- gen_vectors(nrow(df), n)
+  tuples <- gen_tuples(nrow(df), n)
   # generate the multi-subsets
-  # an element v_i in vector v means the number of times the i-th point is selected
-  multisets <- map(vectors, function(v) {
+  # an element v_i in tuple v means the number of times the i-th point is selected
+  multisets <- map(tuples, function(v) {
     multiset <- list(x = c(), y = c())
     for (i in seq_along(v)) {
       multiset$x <- c(multiset$x, rep(df$x[i], v[i]))
@@ -177,23 +187,25 @@ select_data <- function(df, n) {
     }
     return(multiset)
   })
+  cat("Number of multi-subsets:", length(multisets), "\n")
   # calculate the closeness of each multi-subset
   closenesses <- map_dbl(multisets, function(s) {
     reg <- ols_regression_single(s$x, s$y)
     return(closeness(2, -3, reg$m, reg$b))
   })
-  # return the best vector and its closeness
+  # drop NA, as if we select n points be the same, the closeness is NA
   min_closeness <- min(closenesses, na.rm = TRUE)
   if (is.na(min_closeness)) {
     return(list(
-      vector = NULL,
+      tuple = NULL,
       multiset = NULL,
       closeness = NA
     ))
   }
+  # return the best tuple and its closeness
   best_idx <- which(closenesses == min_closeness)
   return(list(
-    vector = vectors[best_idx],
+    tuple = tuples[best_idx],
     multiset = multisets[best_idx],
     closeness = min_closeness
   ))
@@ -203,19 +215,25 @@ select_data <- function(df, n) {
 ## Part 1
 
 ```{r}
-model <- ols_regression_single(pool$x, pool$y)
-plot <- ggplot(data = pool) +
-  geom_point(aes(x = x, y = y, color = "data points")) +
-  geom_abline(aes(intercept = model$b, slope = model$m, color = "estimate")) +
-  geom_abline(aes(intercept = -3, slope = 2, color = "truth")) +
-  xlim(-5, 5) +
-  ylim(-5, 5) +
-  ggtitle(bquote("Pool-based Teacher: linear regression on whole" ~ .(nrow(pool)) ~ "points"))
-print(plot)
-cat("Estimated slope:", model$m, "\n")
-cat("Estimated intercept:", model$b, "\n")
-cat("True slope:", 2, "\n")
-cat("True intercept:", -3, "\n")
+run_q2_part1 <- function() {
+  start_time <- Sys.time()
+  model <- ols_regression_single(pool$x, pool$y)
+  plot <- ggplot(data = pool) +
+    geom_point(aes(x = x, y = y, color = "data points")) +
+    geom_abline(aes(intercept = model$b, slope = model$m, color = "estimate")) +
+    geom_abline(aes(intercept = -3, slope = 2, color = "truth")) +
+    xlim(-5, 5) +
+    ylim(-5, 5) +
+    ggtitle(bquote("Pool-based Teacher: linear regression on whole" ~ .(nrow(pool)) ~ "points"))
+  print(plot)
+  ggsave(filename = "q2_all.svg")
+  summary_model(model)
+  cat("Closeness:", closeness(2, -3, model$m, model$b), "\n")
+  end_time <- Sys.time()
+  cat("Time elapsed (second):", end_time - start_time, "\n")
+}
+
+run_q2_part1()
 ```
 
 ## Experiment Function `run_q2()`
@@ -224,7 +242,7 @@ cat("True intercept:", -3, "\n")
 run_q2 <- function(n) {
   start_time <- Sys.time()
   d <- select_data(pool, n)
-  cat("Best dataset (use the first one):\n")
+  cat("\nBest dataset (use the first one):\n")
   print(d)
   df_selected <- tibble(
     x = d$multiset[[1]]$x,
@@ -243,6 +261,7 @@ run_q2 <- function(n) {
     ylim(-5, 5) +
     ggtitle(bquote("Pool-based Teacher: linear regression on best" ~ .(n) ~ "points"))
   print(plot)
+  ggsave(filename = paste0("q2_n", n, ".svg"))
   end_time <- Sys.time()
   cat("Time elapsed (second):", end_time - start_time, "\n")
 }
@@ -259,3 +278,54 @@ run_q2(2)
 ```{r}
 run_q2(3)
 ```
+
+## Discussion
+
+$$
+\begin{aligned}
+\ell(D) &\coloneqq (\hat{a}-a)^2 + (\hat{b}-b)^2 \\
+\ell(P) &= 0.5283286 \\
+\ell(D_3) &= 0.01861329 \\
+\ell(D_4) &= 0.0002014267
+\end{aligned}
+$$
+
+I find that with $P$ having all 30 points, we can pick a multi-subset to have a smaller closeness, which means that the linear regression model on the multi-subset is closer to the truth.
+
+However, the closeness $\ell$, i.e., the loss, should be smaller if we pick more points. Suppose we can perfectly fit the regression line by $n$ points, then we might not have perfect fit with $n+1$ points based on the original $n$ points plus one extra point, as there might not be a point directly on the regression line, but we might find one as we could use other points which are not originally picked.
+
+This could be explained by the relation $\ell(P)>\ell(D_3)>\ell(D_4)$.
+
+$$
+\begin{aligned}
+T(D) &\coloneqq \text{time to select and model on a dataset $D$} \\
+T(P) &= 0.3 \\
+T(D_3) &= 0.5 \\
+T(D_4) &= 1.8
+\end{aligned}
+$$
+
+The time function contains ignorable plotting, printing, and saveing time, as we are comparing the elapsed times relatively.
+
+I find that the multiset selection takes the most time, as we need to calculate the closeness of each multi-subset. For picking a multi-subset of $m$ points from all $n$ points, it is the same as generating the set of all tuples of $n$ non-negative integers with sum $m$, with every element $v_i$ of every generated tuple be the number of times the $i$-th point is selected. Applying combinatorics, we have $m+n-1\choose n-1$ tuples.
+
+To illustrate the combinatorial result, suppose we have $m+n-1$ elements as depicted below:
+
+$$
+e_1, \dots, e_m, e_{m+1}, \dots, e_{m+n-1}
+$$
+
+Then we can put $n-1$ $e_i$'s to be seperators, and we put remaining $m$ $e_i$'s to be $1$. Then we have $n$ non-negative integers with sum $m$. One instance is depicted below for $n=4, m=3$:
+
+$$
+\begin{aligned}
+\text{Pattern: } & e_1, & e_2, & e_3, & e_4, & e_5, & e_6 \\
+\text{Instance: } & 1, & |, & 1, & 1, & |, & | \\
+\end{aligned}
+$$
+
+From this instance, we have the tuple $v=(1, 2, 0, 0)$, meaning our generated multi-subset have $1$ point from the $1$-st point, $2$ points from the $2$-nd point, $0$ point from the $3$-rd point, and $0$ point from the $4$-th point.
+
+With the combination expanded ${m+n-1\choose n-1}=\frac{(m+n-1)!}{m!(n-1)!}$, so the time complexity of the multiset selection is factorial, which expands quickly with the number of points, making the selection slow.
+
+This could be explained by the relation $T(P)<T(D_3)<T(D_4)$.
