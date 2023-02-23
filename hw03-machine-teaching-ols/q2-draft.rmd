@@ -1,0 +1,14 @@
+```{r results='hide', message=FALSE, warning=FALSE}
+knitr::opts_knit$set(root.dir = "/Users/turx/Projects/machine-teaching-23sp/hw03-machine-teaching-ols")
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+library(readxl)
+library(tidyverse)
+library(lubridate)
+library(ggplot2)
+set.seed(27021)
+```
+
+```{r}
+df <- read.table("hw3pool.txt", col.names = c("x", "y"))
+df
+```

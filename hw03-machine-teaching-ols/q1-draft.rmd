@@ -1,0 +1,31 @@
+```{r results='hide', message=FALSE, warning=FALSE}
+knitr::opts_knit$set(root.dir = "/Users/turx/Projects/machine-teaching-23sp/hw03-machine-teaching-ols")
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+library(readxl)
+library(tidyverse)
+library(lubridate)
+library(ggplot2)
+set.seed(27021)
+```
+
+```{r}
+n <- 2
+eps <- runif(n, -1, 1)
+x <- runif(n, 0, 1)
+y <- 2 * x - 3 + eps
+
+model <- lm(eps ~ x)
+m <- coef(model)[2]
+b <- coef(model)[1]
+
+y <- (2 - m) * x - 3 - b + eps
+
+df <- data.frame(x, y)
+ggplot(df, aes(x, y)) +
+    geom_point() +
+    geom_abline(intercept = -3, slope = 2, color = "red") +
+    geom_smooth(method = "lm", se = FALSE, color = "blue")
+```
+
+```{r}
+```
