@@ -1,0 +1,281 @@
+---
+title: "Homework 4: greedy algorithm for teaching OLS; 1NN classifier"
+author: "Ruixuan Tu (ruixuan@cs.wisc.edu)"
+date: "4 March 2023"
+output:
+  prettydoc::html_pretty:
+    theme: tactile
+    highlight: github
+    math: katex
+---
+
+# Setup
+
+Load packages and set working directory:
+
+```{r results='hide', message=FALSE, warning=FALSE}
+knitr::opts_knit$set(root.dir = "/Users/turx/Projects/machine-teaching-23sp/hw04-greedy-1nn")
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+library(readxl)
+library(tidyverse)
+library(lubridate)
+library(ggplot2)
+set.seed(27021)
+```
+
+# Q1: When enumeration stops working?
+
+## Read data (from Homework 3)
+
+```{r}
+pool <- read.table("../hw03-machine-teaching-ols/hw3pool.txt", col.names = c("x", "y"))
+pool
+```
+
+## Implementation of OLS, combinatorial selector, and fitter (modified from Homework 3)
+
+```{r}
+ols_regression_single <- function(x, y) {
+  model <- lm(y ~ x)
+  return(list(m = model$coefficients[2], b = model$coefficients[1]))
+}
+
+# define closeness
+closeness <- function(m, b, mhat, bhat) (mhat - m)^2 + (bhat - b)^2
+
+# generate the set of all multi-subsets of size m from a set of size n given by index 1:n
+# an equivalent problem: generate the set of all tuples of n non-negative integers with sum m
+gen_tuples <- function(n, m) {
+  if (n == 1) {
+    return(list(c(m)))
+  } else {
+    v <- list()
+    for (i in 0:m) {
+      v <- c(v, lapply(gen_tuples(n - 1, m - i), function(x) c(i, x)))
+    }
+    return(v)
+  }
+}
+
+# select the best multi-subset of size n from the dataset df with variables x and y
+combinatorial_selector <- function(df, n, verbose = FALSE) {
+  if (n < 2) stop("n must be greater than 1")
+  # generate all multi-subsets of size n
+  tuples <- gen_tuples(nrow(df), n)
+  # generate the multi-subsets
+  # an element v_i in tuple v means the number of times the i-th point is selected
+  multisets <- map(tuples, function(v) {
+    multiset <- list(x = c(), y = c())
+    for (i in seq_along(v)) {
+      multiset$x <- c(multiset$x, rep(df$x[i], v[i]))
+      multiset$y <- c(multiset$y, rep(df$y[i], v[i]))
+    }
+    return(multiset)
+  })
+  if (verbose) cat("Number of multi-subsets:", length(multisets), "\n")
+  # calculate the closeness of each multi-subset
+  closenesses <- map_dbl(multisets, function(s) {
+    reg <- ols_regression_single(s$x, s$y)
+    return(closeness(2, -3, reg$m, reg$b))
+  })
+  # drop NA, as if we select n points be the same, the closeness is NA
+  min_closeness <- min(closenesses, na.rm = TRUE)
+  if (is.na(min_closeness)) {
+    return(list(
+      tuple = NULL,
+      multiset = NULL,
+      closeness = NA
+    ))
+  }
+  # return the best tuple and its closeness
+  best_idx <- which(closenesses == min_closeness)
+  return(list(
+    multiset = multisets[[best_idx]],
+    closeness = min_closeness,
+    n = length(tuples)
+  ))
+}
+
+pool_fit <- function(n, selector, verbose = FALSE) {
+  start_time <- Sys.time()
+  d <- selector(pool, n)
+  df_selected <- tibble(
+    x = d$multiset$x,
+    y = d$multiset$y
+  )
+  df_non_selected <- pool %>% filter(!(x %in% df_selected$x & y %in% df_selected$y))
+  model <- ols_regression_single(d$multiset$x, d$multiset$y)
+  end_time <- Sys.time()
+  if (verbose) {
+    cat("\nBest dataset (use the first one):\n")
+    print(d)
+    cat("\nModel of linear regression on the best dataset:\n")
+    print(model)
+    cat("Time elapsed (second):", end_time - start_time, "\n")
+  }
+  return(list(
+    loss = d$closeness,
+    n = d$n,
+    time = end_time - start_time
+  ))
+}
+```
+
+## Test when enumeration stops working
+
+```{r}
+pool_fit_batch <- function(upper, selector) {
+  pool_fit_results <- tibble(n_pts = integer(), n_ols = integer(), loss = double(), time = double())
+  for (n in 2:upper) {
+    result <- pool_fit(n, selector)
+    pool_fit_results <- rbind(pool_fit_results, tibble(n_pts = n, n_ols = result$n, loss = result$loss, time = result$time))
+  }
+  pool_fit_results <- pool_fit_results %>% mutate(loss = num(loss, notation = "sci"))
+  return(pool_fit_results)
+}
+```
+
+```{r}
+pool_fit_comb_results <- pool_fit_batch(upper = 4, combinatorial_selector)
+pool_fit_comb_results %>% print(n = Inf)
+```
+
+## Intepretation
+
+As the enumeration for the combinatorial selector of size 4 takes over 10 seconds, and it is very slow for larger sizes, we stop the enumeration at size 4.
+
+# Q2: A greedy algorithm
+
+## Implementation of the greedy algorithm
+
+```{r}
+greedy_selector <- function(df, n) {
+  if (n < 2) stop("n must be greater than 1")
+  # select the first point
+  initial_idx <- sample(nrow(df), 1)
+  initial_point <- df[initial_idx, ]
+  df_selected <- tibble(x = initial_point$x, y = initial_point$y)
+  min_global_closeness <- Inf
+  for (i in 2:n) {
+    min_closeness <- Inf
+    min_idx <- NA
+    for (j in seq_len(nrow(df))) {
+      pending_df_selected <- rbind(df_selected, df[j, ])
+      theta_hat <- ols_regression_single(pending_df_selected$x, pending_df_selected$y)
+      pending_closeness <- closeness(2, -3, theta_hat$m, theta_hat$b)
+      if (is.na(pending_closeness)) next
+      if (pending_closeness < min_closeness) {
+        min_closeness <- pending_closeness
+        min_idx <- j
+      }
+    }
+    min_global_closeness <- min_closeness
+    df_selected <- rbind(df_selected, df[min_idx, ])
+  }
+  return(list(
+    multiset = list(x = df_selected$x, y = df_selected$y),
+    closeness = min_global_closeness,
+    n = (n - 1) * nrow(df)
+  ))
+}
+```
+
+## Use the greedy algorithm
+
+```{r}
+pool_fit_greedy_results <- pool_fit_batch(upper = nrow(pool), greedy_selector)
+pool_fit_greedy_results %>% print(n = Inf)
+```
+
+## Interpretation
+
+```{r}
+min(pool_fit_greedy_results$loss) - min(pool_fit_comb_results$loss)
+```
+
+The greedy algorithm is worse than the combinatorial algorithm, as the loss is higher (the difference between losses with max 4 points for the combinatorial selector and max 30 points for the greedy selector is significant), which means a lower quality of the teaching set. The stopping criterion I might use is that there is no lower loss which can refresh the min loss in consecutive 5 points, as selecting multiset does not need to restrict the number of selected points to be the size of the pool $P$. In terms of running time, the greedy algorithm is much faster, and the time does not increase exponentially like the combinatorial algorithm.
+
+# Q3: Implement kNN classifier
+
+## Implementation of dataset generatior
+
+```{r}
+# generate a dataset with n vectors of dimension d, with k categories of labels
+generator <- function(n_vec, d, n_categories) {
+  x <- matrix(rnorm(n_vec * d), n_vec, d)
+  y <- sample.int(n_categories, n_vec, replace = TRUE) - 1
+  return(list(x = x, y = y))
+}
+
+ds_train <- generator(n_vec = 50, d = 2, n_categories = 2)
+ds_test <- generator(n_vec = 50, d = 2, n_categories = 1)
+
+# plot the training and testing datasets, with testing dataset in not predicted
+plot_dataset <- function(ds_train, ds_test, n_categories, k = 0) {
+  plot <- ggplot() +
+    geom_point(data = tibble(x = ds_train$x[, 1], y = ds_train$x[, 2], label = ds_train$y), aes(x, y, color = factor(label), size = "train", alpha = "train")) +
+    scale_color_discrete(name = "label", labels = paste((1:n_categories) - 1)) +
+    scale_size_manual(values = c("train" = 1, "test" = 1.5)) +
+    scale_alpha_manual(values = c("train" = 1, "test" = 0.5))
+  if (length(table(ds_test$y)) > 1) {
+    plot <- plot +
+      geom_point(data = tibble(x = ds_test$x[, 1], y = ds_test$x[, 2], label = ds_test$y), aes(x, y, color = factor(label), size = "test", alpha = "test")) +
+      ggtitle(
+        "Training and Testing Datasets with Predicted Labels",
+        subtitle = bquote(n[categories] == .(n_categories) ~ n[train] == .(nrow(ds_train$x)) ~ n[test] == .(nrow(ds_test$x)) ~ k == .(k))
+      )
+  } else {
+    plot <- plot +
+      geom_point(data = tibble(x = ds_test$x[, 1], y = ds_test$x[, 2]), aes(x, y, size = "test", alpha = "test")) +
+      ggtitle(
+        "Training and Testing Datasets without Predicted Labels",
+        subtitle = bquote(n[categories] == .(n_categories) ~ n[train] == .(nrow(ds_train$x)) ~ n[test] == .(nrow(ds_test$x)))
+      )
+  }
+  plot
+}
+
+plot_dataset(ds_train, ds_test, n_categories = 2)
+ggsave("q3_cat2_train50_test50_np.svg")
+```
+
+## Implementation of kNN classifier
+
+```{r}
+knn_classifier <- function(train_x, train_y, test_x, k) {
+  test_y <- integer(nrow(test_x))
+  for (i in seq_len(nrow(test_x))) {
+    # compute the distance between the test point and all training points
+    distances <- map_dbl(seq_len(nrow(train_x)), function(j) sqrt(sum((train_x[j, ] - test_x[i, ]) ^ 2)))
+    # find the k nearest neighbors
+    nearest_neighbors <- train_y[order(distances)[1:k]]
+    # predict the label of the test point
+    test_y_single <- as.integer(names(which.max(table(nearest_neighbors))))
+    # store the prediction
+    test_y[i] <- test_y_single
+  }
+  return(test_y)
+}
+```
+
+## Test the kNN classifier for a certain dataset
+
+```{r}
+ds_test_pred <- tibble(x = ds_test$x, y = knn_classifier(ds_train$x, ds_train$y, ds_test$x, k = 1))
+plot_dataset(ds_train, ds_test_pred, n_categories = 2, k = 1)
+ggsave("q3_cat2_train50_test50_k1.svg")
+
+ds_test_pred <- tibble(x = ds_test$x, y = knn_classifier(ds_train$x, ds_train$y, ds_test$x, k = 3))
+plot_dataset(ds_train, ds_test_pred, n_categories = 2, k = 3)
+ggsave("q3_cat2_train50_test50_k3.svg")
+```
+
+## One more complicated dataset
+
+```{r}
+ds_train <- generator(n_vec = 200, d = 2, n_categories = 4)
+ds_test <- generator(n_vec = 100, d = 2, n_categories = 1)
+ds_test_pred <- tibble(x = ds_test$x, y = knn_classifier(ds_train$x, ds_train$y, ds_test$x, k = 3))
+plot_dataset(ds_train, ds_test_pred, n_categories = 4, k = 4)
+ggsave("q3_cat4_train200_test100_k4.svg")
+```
