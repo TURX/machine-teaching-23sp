@@ -20,7 +20,6 @@ library(readxl)
 library(tidyverse)
 library(lubridate)
 library(ggplot2)
-library(scales)
 set.seed(27021)
 ```
 
@@ -139,6 +138,18 @@ pool_fit_batch <- function(upper, selector, file) {
   pool_fit_results <- pool_fit_results %>% mutate(loss = num(loss, notation = "sci"))
   return(pool_fit_results)
 }
+
+# plot n_pts vs. log(loss) curve
+plot_fit_result <- function(pool_fit_results, title) {
+  p <- ggplot(pool_fit_results, aes(x = n_pts, y = loss)) +
+    geom_point() +
+    geom_line() +
+    scale_y_log10() +
+    labs(x = "Number of points", y = "Loss (scaled log10)") +
+    ggtitle("Log of loss vs. number of points", subtitle = title)
+  ggsave(paste0(title, "_plot.svg"), p)
+  p
+}
 ```
 
 ```{r}
@@ -148,6 +159,7 @@ pool_fit_comb_results <- pool_fit_batch(
   file = "q1_pool_fit_comb_results.csv"
 )
 pool_fit_comb_results %>% print(n = Inf)
+plot_fit_result(pool_fit_comb_results, "q1_pool_fit_comb")
 ```
 
 ## Intepretation
@@ -204,6 +216,7 @@ pool_fit_greedy_results <- pool_fit_batch(
   file = "q2_pool_fit_greedy_results.csv"
 )
 pool_fit_greedy_results %>% print(n = Inf)
+plot_fit_result(pool_fit_greedy_results, "q2_pool_fit_greedy")
 ```
 
 ## Interpretation
@@ -225,10 +238,20 @@ write(pool_fit_greedy_interpretation, "q2_pool_fit_greedy_interpretation.txt")
 ## Implementation of dataset generatior
 
 ```{r}
-# generate a dataset with n vectors of dimension d, with k categories of labels
-generator <- function(n_vec, d, n_categories) {
+# generate a dataset with n vectors of dimension d, with n_categories categories of labels
+generator_unif <- function(n_vec, d, n_categories) {
   x <- matrix(runif(n_vec * d), n_vec, d)
   y <- sample.int(n_categories, n_vec, replace = TRUE) - 1
+  return(list(x = x, y = y))
+}
+
+# generate a dataset on a grid with n_categories categories of labels
+generator_grid <- function(x_min, x_max, y_min, y_max, len, n_categories) {
+  x <- seq(x_min, x_max, length.out = len)
+  y <- seq(y_min, y_max, length.out = len)
+  x <- expand.grid(x, y)
+  x <- as.matrix(x)
+  y <- sample.int(n_categories, len * len, replace = TRUE) - 1
   return(list(x = x, y = y))
 }
 
@@ -237,8 +260,10 @@ plot_dataset <- function(ds_train, ds_test, n_categories, k = 0) {
   plot <- ggplot() +
     geom_point(data = tibble(x = ds_train$x[, 1], y = ds_train$x[, 2], label = ds_train$y), aes(x, y, color = factor(label), size = "train", alpha = "train")) +
     scale_color_discrete(name = "label", labels = paste((1:n_categories) - 1)) +
-    scale_size_manual(values = c("train" = 1, "test" = 1.5)) +
-    scale_alpha_manual(values = c("train" = 1, "test" = 0.5))
+    scale_size_manual(values = c("train" = 3, "test" = 1)) +
+    scale_alpha_manual(values = c("train" = 1, "test" = 0.5)) +
+    xlim(0, 1) +
+    ylim(0, 1)
   if (length(table(ds_test$y)) > 1) {
     plot <- plot +
       geom_point(data = tibble(x = ds_test$x[, 1], y = ds_test$x[, 2], label = ds_test$y), aes(x, y, color = factor(label), size = "test", alpha = "test")) +
@@ -246,6 +271,7 @@ plot_dataset <- function(ds_train, ds_test, n_categories, k = 0) {
         "Training and Testing Datasets with Predicted Labels",
         subtitle = bquote(n[categories] == .(n_categories) ~ n[train] == .(nrow(ds_train$x)) ~ n[test] == .(nrow(ds_test$x)) ~ k == .(k))
       )
+    ggsave(paste0("q3_plot_cat", n_categories, "_train", nrow(ds_train$x), "_test", nrow(ds_test$x), "_k", k, ".svg"), plot)
   } else {
     plot <- plot +
       geom_point(data = tibble(x = ds_test$x[, 1], y = ds_test$x[, 2]), aes(x, y, size = "test", alpha = "test")) +
@@ -253,14 +279,14 @@ plot_dataset <- function(ds_train, ds_test, n_categories, k = 0) {
         "Training and Testing Datasets without Predicted Labels",
         subtitle = bquote(n[categories] == .(n_categories) ~ n[train] == .(nrow(ds_train$x)) ~ n[test] == .(nrow(ds_test$x)))
       )
+    ggsave(paste0("q3_cat", n_categories, "_train", nrow(ds_train$x), "_test", nrow(ds_test$x), "_np.svg"), plot)
   }
   plot
 }
 
-ds_train <- generator(n_vec = 4096, d = 2, n_categories = 2)
-ds_test <- generator(n_vec = 2048, d = 2, n_categories = 1)
+ds_train <- generator_unif(n_vec = 16, d = 2, n_categories = 2)
+ds_test <- generator_grid(x_min = 0, x_max = 1, y_min = 0, y_max = 1, len = 100, n_categories = 1)
 plot_dataset(ds_train, ds_test, n_categories = 2)
-ggsave("q3_cat2_train4096_test2048_np.svg")
 ```
 
 ## Implementation of kNN classifier
@@ -287,19 +313,16 @@ knn_classifier <- function(train_x, train_y, test_x, k) {
 ```{r}
 ds_test_pred <- tibble(x = ds_test$x, y = knn_classifier(ds_train$x, ds_train$y, ds_test$x, k = 1))
 plot_dataset(ds_train, ds_test_pred, n_categories = 2, k = 1)
-ggsave("q3_cat2_train4096_test2048_k1.svg")
 
 ds_test_pred <- tibble(x = ds_test$x, y = knn_classifier(ds_train$x, ds_train$y, ds_test$x, k = 3))
 plot_dataset(ds_train, ds_test_pred, n_categories = 2, k = 3)
-ggsave("q3_cat2_train4096_test2048_k3.svg")
 ```
 
 ## One more complicated dataset with 4 categories
 
 ```{r}
-ds_train <- generator(n_vec = 2048, d = 2, n_categories = 4)
-ds_test <- generator(n_vec = 1024, d = 2, n_categories = 1)
+ds_train <- generator_unif(n_vec = 32, d = 2, n_categories = 4)
+ds_test <- generator_grid(x_min = 0, x_max = 1, y_min = 0, y_max = 1, len = 100, n_categories = 1)
 ds_test_pred <- tibble(x = ds_test$x, y = knn_classifier(ds_train$x, ds_train$y, ds_test$x, k = 3))
 plot_dataset(ds_train, ds_test_pred, n_categories = 4, k = 4)
-ggsave("q3_cat4_train2048_test1024_k4.svg")
 ```
