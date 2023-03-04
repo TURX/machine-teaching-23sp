@@ -1,0 +1,1 @@
+As the enumeration for the combinatorial selector of size 6 takes 418 seconds, and it is extremely slow for larger sizes (waited more than 10 minutes for size 7), we stop the enumeration at size 6.

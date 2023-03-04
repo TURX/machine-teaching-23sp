@@ -20,6 +20,7 @@ library(readxl)
 library(tidyverse)
 library(lubridate)
 library(ggplot2)
+library(scales)
 set.seed(27021)
 ```
 
@@ -124,11 +125,16 @@ pool_fit <- function(n, selector, verbose = FALSE) {
 ## Test when enumeration stops working
 
 ```{r}
-pool_fit_batch <- function(upper, selector) {
-  pool_fit_results <- tibble(n_pts = integer(), n_ols = integer(), loss = double(), time = double())
-  for (n in 2:upper) {
-    result <- pool_fit(n, selector)
-    pool_fit_results <- rbind(pool_fit_results, tibble(n_pts = n, n_ols = result$n, loss = result$loss, time = result$time))
+pool_fit_batch <- function(upper, selector, file) {
+  if (!file.exists(file)) {
+    pool_fit_results <- tibble(n_pts = integer(), n_ols = integer(), loss = num(notation = "sci"), time = double())
+    for (n in 2:upper) {
+      result <- pool_fit(n, selector)
+      pool_fit_results <- rbind(pool_fit_results, tibble(n_pts = n, n_ols = result$n, loss = result$loss, time = result$time))
+    }
+  }
+  else {
+    pool_fit_results <- read_csv(file, col_types = cols(n_pts = col_integer(), n_ols = col_integer(), loss = col_double(), time = col_double()))
   }
   pool_fit_results <- pool_fit_results %>% mutate(loss = num(loss, notation = "sci"))
   return(pool_fit_results)
@@ -136,13 +142,22 @@ pool_fit_batch <- function(upper, selector) {
 ```
 
 ```{r}
-pool_fit_comb_results <- pool_fit_batch(upper = 4, combinatorial_selector)
+pool_fit_comb_results <- pool_fit_batch(
+  upper = 6,
+  selector = combinatorial_selector,
+  file = "q1_pool_fit_comb_results.csv"
+)
 pool_fit_comb_results %>% print(n = Inf)
 ```
 
 ## Intepretation
 
-As the enumeration for the combinatorial selector of size 4 takes over 10 seconds, and it is very slow for larger sizes, we stop the enumeration at size 4.
+As the enumeration for the combinatorial selector of size 6 takes 418 seconds, and it is extremely slow for larger sizes (waited more than 10 minutes for size 7), we stop the enumeration at size 6.
+
+```{r include=FALSE}
+pool_fit_comb_interpretation <- "As the enumeration for the combinatorial selector of size 6 takes 418 seconds, and it is extremely slow for larger sizes (waited more than 10 minutes for size 7), we stop the enumeration at size 6."
+write(pool_fit_comb_interpretation, "q1_pool_fit_comb_interpretation.txt")
+```
 
 # Q2: A greedy algorithm
 
@@ -183,17 +198,27 @@ greedy_selector <- function(df, n) {
 ## Use the greedy algorithm
 
 ```{r}
-pool_fit_greedy_results <- pool_fit_batch(upper = nrow(pool), greedy_selector)
+pool_fit_greedy_results <- pool_fit_batch(
+  upper = nrow(pool),
+  greedy_selector,
+  file = "q2_pool_fit_greedy_results.csv"
+)
 pool_fit_greedy_results %>% print(n = Inf)
 ```
 
 ## Interpretation
 
 ```{r}
-min(pool_fit_greedy_results$loss) - min(pool_fit_comb_results$loss)
+pool_fit_greedy_results %>% filter(loss == min(pool_fit_greedy_results$loss))
+pool_fit_comb_results %>% filter(loss == min(pool_fit_comb_results$loss))
 ```
 
-The greedy algorithm is worse than the combinatorial algorithm, as the loss is higher (the difference between losses with max 4 points for the combinatorial selector and max 30 points for the greedy selector is significant), which means a lower quality of the teaching set. The stopping criterion I might use is that there is no lower loss which can refresh the min loss in consecutive 5 points, as selecting multiset does not need to restrict the number of selected points to be the size of the pool $P$. In terms of running time, the greedy algorithm is much faster, and the time does not increase exponentially like the combinatorial algorithm.
+The greedy algorithm is worse than the combinatorial algorithm, as the loss is higher (the difference between losses with max 6 points for the combinatorial selector and max 30 points for the greedy selector is significant), which means a lower quality of the teaching set. The stopping criterion I might use is that there is no lower loss which can refresh the min loss in consecutive 5 points, as selecting multiset does not need to restrict the number of selected points to be the size of the pool $P$. In terms of running time, the greedy algorithm is much faster, and the time does not increase exponentially like the combinatorial algorithm.
+
+```{r include=FALSE}
+pool_fit_greedy_interpretation <- "The greedy algorithm is worse than the combinatorial algorithm, as the loss is higher (the difference between losses with max 6 points for the combinatorial selector and max 30 points for the greedy selector is significant), which means a lower quality of the teaching set. The stopping criterion I might use is that there is no lower loss which can refresh the min loss in consecutive 5 points, as selecting multiset does not need to restrict the number of selected points to be the size of the pool $P$. In terms of running time, the greedy algorithm is much faster, and the time does not increase exponentially like the combinatorial algorithm."
+write(pool_fit_greedy_interpretation, "q2_pool_fit_greedy_interpretation.txt")
+```
 
 # Q3: Implement kNN classifier
 
@@ -202,13 +227,10 @@ The greedy algorithm is worse than the combinatorial algorithm, as the loss is h
 ```{r}
 # generate a dataset with n vectors of dimension d, with k categories of labels
 generator <- function(n_vec, d, n_categories) {
-  x <- matrix(rnorm(n_vec * d), n_vec, d)
+  x <- matrix(runif(n_vec * d), n_vec, d)
   y <- sample.int(n_categories, n_vec, replace = TRUE) - 1
   return(list(x = x, y = y))
 }
-
-ds_train <- generator(n_vec = 50, d = 2, n_categories = 2)
-ds_test <- generator(n_vec = 50, d = 2, n_categories = 1)
 
 # plot the training and testing datasets, with testing dataset in not predicted
 plot_dataset <- function(ds_train, ds_test, n_categories, k = 0) {
@@ -235,8 +257,10 @@ plot_dataset <- function(ds_train, ds_test, n_categories, k = 0) {
   plot
 }
 
+ds_train <- generator(n_vec = 4096, d = 2, n_categories = 2)
+ds_test <- generator(n_vec = 2048, d = 2, n_categories = 1)
 plot_dataset(ds_train, ds_test, n_categories = 2)
-ggsave("q3_cat2_train50_test50_np.svg")
+ggsave("q3_cat2_train4096_test2048_np.svg")
 ```
 
 ## Implementation of kNN classifier
@@ -263,19 +287,19 @@ knn_classifier <- function(train_x, train_y, test_x, k) {
 ```{r}
 ds_test_pred <- tibble(x = ds_test$x, y = knn_classifier(ds_train$x, ds_train$y, ds_test$x, k = 1))
 plot_dataset(ds_train, ds_test_pred, n_categories = 2, k = 1)
-ggsave("q3_cat2_train50_test50_k1.svg")
+ggsave("q3_cat2_train4096_test2048_k1.svg")
 
 ds_test_pred <- tibble(x = ds_test$x, y = knn_classifier(ds_train$x, ds_train$y, ds_test$x, k = 3))
 plot_dataset(ds_train, ds_test_pred, n_categories = 2, k = 3)
-ggsave("q3_cat2_train50_test50_k3.svg")
+ggsave("q3_cat2_train4096_test2048_k3.svg")
 ```
 
-## One more complicated dataset
+## One more complicated dataset with 4 categories
 
 ```{r}
-ds_train <- generator(n_vec = 200, d = 2, n_categories = 4)
-ds_test <- generator(n_vec = 100, d = 2, n_categories = 1)
+ds_train <- generator(n_vec = 2048, d = 2, n_categories = 4)
+ds_test <- generator(n_vec = 1024, d = 2, n_categories = 1)
 ds_test_pred <- tibble(x = ds_test$x, y = knn_classifier(ds_train$x, ds_train$y, ds_test$x, k = 3))
 plot_dataset(ds_train, ds_test_pred, n_categories = 4, k = 4)
-ggsave("q3_cat4_train200_test100_k4.svg")
+ggsave("q3_cat4_train2048_test1024_k4.svg")
 ```
