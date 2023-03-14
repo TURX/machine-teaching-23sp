@@ -15,7 +15,7 @@ Load packages and set working directory:
 
 ```{r results='hide', message=FALSE, warning=FALSE}
 knitr::opts_knit$set(root.dir = "/Users/turx/Projects/machine-teaching-23sp/hw04-greedy-1nn")
-knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+knitr::opts_chunk$set(warning = FALSE, message = FALSE, error = FALSE)
 library(readxl)
 library(tidyverse)
 library(lubridate)
@@ -58,7 +58,7 @@ gen_tuples <- function(n, m) {
 }
 
 # select the best multi-subset of size n from the dataset df with variables x and y
-combinatorial_selector <- function(df, n, verbose = FALSE) {
+combinatorial_selector <- function(df, n, verbose = FALSE, history = NA) {
   if (n < 2) stop("n must be greater than 1")
   # generate all multi-subsets of size n
   tuples <- gen_tuples(nrow(df), n)
@@ -96,15 +96,14 @@ combinatorial_selector <- function(df, n, verbose = FALSE) {
   ))
 }
 
-pool_fit <- function(n, selector, verbose = FALSE) {
+pool_fit <- function(n, selector, verbose = FALSE, history = NA) {
   start_time <- Sys.time()
-  d <- selector(pool, n)
+  d <- selector(df = pool, n = n, history = history)
   df_selected <- tibble(
     x = d$multiset$x,
     y = d$multiset$y
   )
-  df_non_selected <- pool %>% filter(!(x %in% df_selected$x & y %in% df_selected$y))
-  model <- ols_regression_single(d$multiset$x, d$multiset$y)
+  model <- ols_regression_single(df_selected$x, df_selected$y)
   end_time <- Sys.time()
   if (verbose) {
     cat("\nBest dataset (use the first one):\n")
@@ -112,10 +111,13 @@ pool_fit <- function(n, selector, verbose = FALSE) {
     cat("\nModel of linear regression on the best dataset:\n")
     print(model)
     cat("Time elapsed (second):", end_time - start_time, "\n")
+    cat("[pool_fit] x =", d$multiset$x, " y =", d$multiset$y, "\n")
   }
   return(list(
+    x = d$multiset$x,
+    y = d$multiset$y,
     loss = d$closeness,
-    n = d$n,
+    n_ols = d$n_ols,
     time = end_time - start_time
   ))
 }
@@ -126,16 +128,20 @@ pool_fit <- function(n, selector, verbose = FALSE) {
 ```{r}
 pool_fit_batch <- function(upper, selector, file) {
   if (!file.exists(file)) {
-    pool_fit_results <- tibble(n_pts = integer(), n_ols = integer(), loss = num(notation = "sci"), time = double())
+    pool_fit_results <- tibble(x = list(), y = list(), n_pts = integer(), n_ols = integer(), loss = double(), time = double())
     for (n in 2:upper) {
-      result <- pool_fit(n, selector)
-      pool_fit_results <- rbind(pool_fit_results, tibble(n_pts = n, n_ols = result$n, loss = result$loss, time = result$time))
+      history_row_df <- pool_fit_results[nrow(pool_fit_results), ]
+      history <- list(x = unlist(history_row_df$x), y = unlist(history_row_df$y))
+      result <- pool_fit(n, selector, history = history)
+      pool_fit_results <- rbind(pool_fit_results, tibble(x = list(result$x), y = list(result$y), n_pts = n, n_ols = result$n_ols, loss = result$loss, time = result$time))
     }
-  }
-  else {
+    pool_fit_results <- pool_fit_results %>% select(-x, -y)
+  } else {
     pool_fit_results <- read_csv(file, col_types = cols(n_pts = col_integer(), n_ols = col_integer(), loss = col_double(), time = col_double()))
   }
   pool_fit_results <- pool_fit_results %>% mutate(loss = num(loss, notation = "sci"))
+  if (!file.exists(file))
+    write_csv(pool_fit_results, file)
   return(pool_fit_results)
 }
 
@@ -176,19 +182,28 @@ write(pool_fit_comb_interpretation, "q1_pool_fit_comb_interpretation.txt")
 ## Implementation of the greedy algorithm
 
 ```{r}
-greedy_selector <- function(df, n) {
-  if (n < 2) stop("n must be greater than 1")
-  # select the first point
-  initial_idx <- sample(nrow(df), 1)
-  initial_point <- df[initial_idx, ]
-  df_selected <- tibble(x = initial_point$x, y = initial_point$y)
+greedy_selector <- function(df, n, history) {
+  if (length(history$x) > 2 && length(history$x) != n - 1) stop("n is not for +1")
+  n_ols <- 0
+  if (length(history$x) > 2) {
+    df_selected <- tibble(x = history$x, y = history$y)
+  } else {
+    # select the first point
+    initial_idx <- sample(nrow(df), 1)
+    initial_point <- df[initial_idx, ]
+    df_selected <- tibble(x = initial_point$x, y = initial_point$y)
+  }
   min_global_closeness <- Inf
-  for (i in 2:n) {
+  lower <- 2
+  if (length(history$x) > 2)
+    lower <- length(history$x) + 1
+  for (i in lower:n) {
     min_closeness <- Inf
     min_idx <- NA
     for (j in seq_len(nrow(df))) {
       pending_df_selected <- rbind(df_selected, df[j, ])
       theta_hat <- ols_regression_single(pending_df_selected$x, pending_df_selected$y)
+      n_ols <- n_ols + 1
       pending_closeness <- closeness(2, -3, theta_hat$m, theta_hat$b)
       if (is.na(pending_closeness)) next
       if (pending_closeness < min_closeness) {
@@ -202,7 +217,7 @@ greedy_selector <- function(df, n) {
   return(list(
     multiset = list(x = df_selected$x, y = df_selected$y),
     closeness = min_global_closeness,
-    n = (n - 1) * nrow(df)
+    n_ols = n_ols
   ))
 }
 ```
@@ -226,10 +241,10 @@ pool_fit_greedy_results %>% filter(loss == min(pool_fit_greedy_results$loss))
 pool_fit_comb_results %>% filter(loss == min(pool_fit_comb_results$loss))
 ```
 
-The greedy algorithm is worse than the combinatorial algorithm, as the loss is higher (the difference between losses with max 6 points for the combinatorial selector and max 30 points for the greedy selector is significant), which means a lower quality of the teaching set. The stopping criterion I might use is that there is no lower loss which can refresh the min loss in consecutive 5 points, as selecting multiset does not need to restrict the number of selected points to be the size of the pool $P$. In terms of running time, the greedy algorithm is much faster, and the time does not increase exponentially like the combinatorial algorithm.
+The greedy algorithm is worse than the combinatorial algorithm, as the loss is higher (the difference between losses with max 6 points for the combinatorial selector and max 30 points for the greedy selector is significant), which means a lower quality of the teaching set. The stopping criterion I might use is that there is no lower loss which can refresh the min loss in consecutive 5 points, as selecting multiset does not need to restrict the number of selected points to be the size of the pool $P$. In terms of running time, the greedy algorithm is much faster, and the time cost to add a point is constant, not exponential like the combinatorial algorithm.
 
 ```{r include=FALSE}
-pool_fit_greedy_interpretation <- "The greedy algorithm is worse than the combinatorial algorithm, as the loss is higher (the difference between losses with max 6 points for the combinatorial selector and max 30 points for the greedy selector is significant), which means a lower quality of the teaching set. The stopping criterion I might use is that there is no lower loss which can refresh the min loss in consecutive 5 points, as selecting multiset does not need to restrict the number of selected points to be the size of the pool $P$. In terms of running time, the greedy algorithm is much faster, and the time does not increase exponentially like the combinatorial algorithm."
+pool_fit_greedy_interpretation <- "The greedy algorithm is worse than the combinatorial algorithm, as the loss is higher (the difference between losses with max 6 points for the combinatorial selector and max 30 points for the greedy selector is significant), which means a lower quality of the teaching set. The stopping criterion I might use is that there is no lower loss which can refresh the min loss in consecutive 5 points, as selecting multiset does not need to restrict the number of selected points to be the size of the pool $P$. In terms of running time, the greedy algorithm is much faster, and the time cost to add a point is constant, not exponential like the combinatorial algorithm."
 write(pool_fit_greedy_interpretation, "q2_pool_fit_greedy_interpretation.txt")
 ```
 
