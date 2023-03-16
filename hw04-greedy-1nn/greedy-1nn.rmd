@@ -183,9 +183,9 @@ write(pool_fit_comb_interpretation, "q1_pool_fit_comb_interpretation.txt")
 
 ```{r}
 greedy_selector <- function(df, n, history) {
-  if (length(history$x) > 2 && length(history$x) != n - 1) stop("n is not for +1")
+  if (length(history$x) >= 2 && length(history$x) != n - 1) stop("n is not for +1")
   n_ols <- 0
-  if (length(history$x) > 2) {
+  if (length(history$x) >= 2) {
     df_selected <- tibble(x = history$x, y = history$y)
   } else {
     # select the first point
@@ -195,7 +195,7 @@ greedy_selector <- function(df, n, history) {
   }
   min_global_closeness <- Inf
   lower <- 2
-  if (length(history$x) > 2)
+  if (length(history$x) >= 2)
     lower <- length(history$x) + 1
   for (i in lower:n) {
     min_closeness <- Inf
