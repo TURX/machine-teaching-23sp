@@ -1,0 +1,40 @@
+```{r}
+# do nothing but return the label y in the pool
+expected_classifier <- function(x1, x2) {
+  y <- pool %>% filter(x1 == x1 & x2 == x2) %>% pull(y)
+  y[1]
+}
+```
+
+```{r}
+```
+
+We observe a possible classifier here could be defined by
+
+$$
+g(x_1, x_2) = \begin{cases}
+0 & \text{if } x_1 > 0.375 \text{ and } x_2 > 0.375 \\
+1 & \text{otherwise}
+\end{cases}
+$$
+
+```{r}
+expected_classifier <- function(x1p, x2p)
+  ifelse(x1p > 0.375 & x2p > 0.375, 0, 1)
+```
+
+Z <- gen_Z(expected_classifier, runif(n = 10), runif(n = 10))
+
+trash_classifier <- function(x) 0
+dist(Z, trash_classifier, loss_bin)
+dist(Z_pool, trash_classifier, loss_bin)
+
+# nrow(pool)
+# time_run(gen_tuples, nrow(pool), 1)$time
+# for (m in 1:2) {
+#   pool_tuples_sz[[m]] <- gen_tuples(nrow(pool), m)
+# }
+# combine the generated equivalence classes into a single list
+# pool_tuples <- unlist(pool_tuples_sz, recursive = FALSE)
+# convert the indices of every vector in pool_tuples to the corresponding rows in pool
+# pool_subsets <- lapply(pool_tuples, function(x) pool[x, ])

@@ -1,0 +1,296 @@
+---
+title: "Homework 5: machine teaching for kNN"
+author: "Ruixuan Tu (ruixuan@cs.wisc.edu)"
+date: "29 March 2023"
+output:
+  prettydoc::html_pretty:
+    theme: tactile
+    highlight: github
+    math: katex
+---
+
+# Preparation
+
+## Setup
+
+Load packages and set working directory:
+
+```{r results='hide', message=FALSE, warning=FALSE}
+knitr::opts_knit$set(root.dir = "/Users/turx/Projects/machine-teaching-23sp/hw05-machine-teaching-knn")
+knitr::opts_chunk$set(warning = FALSE, message = FALSE, error = TRUE) # error = TRUE
+setwd("/Users/turx/Projects/machine-teaching-23sp/hw05-machine-teaching-knn")
+library(tidyverse)
+library(lubridate)
+library(ggplot2)
+library(purrr)
+library(rjson)
+library(digest)
+set.seed(digest2int("machine teaching"))
+```
+
+## Read data
+
+```{r}
+pool <- tibble(read.table("hw5data.txt", col.names = c("x1", "x2", "y")))
+# pool_idx <- sample(nrow(pool), size = 50, replace = FALSE)
+# pool <- pool[pool_idx, ]
+pool
+```
+
+## Plot data
+
+```{r}
+ggplot(pool, aes(x = x1, y = x2, color = factor(y))) +
+  geom_point() +
+  lims(x = c(0, 1), y = c(0, 1))
+```
+
+## Constants for Problem Setting in Homework Section 4
+
+```{r}
+k <- 1  # number of nearest neighbors
+Z <- pool %>% rename(x1p = x1, x2p = x2, yp = y)  # superset of all teaching sets
+enum_upper <- 2  # n_star for enum, threshold for the number of teaching examples
+greedy_upper <- 20  # n_star for greedy, threshold for the number of teaching examples
+# saved_run_debug <- TRUE  # uncomment to ignore saved csv files
+```
+
+## Shared functions
+
+### kNN
+
+```{r}
+# kNN classifier (from Homework 4)
+knn_classifier <- function(train_x, train_y, test_x, k) {
+  test_y <- integer(nrow(test_x))
+  for (i in seq_len(nrow(test_x))) {
+    # compute the distance between the test point and all training points
+    distances <- map_dbl(seq_len(nrow(train_x)), function(j) sqrt(sum((train_x[j, ] - test_x[i, ]) ^ 2)))
+    # find the k nearest neighbors
+    nearest_neighbors <- train_y[order(distances)[1:k]]
+    # predict the label of the test point
+    test_y_single <- as.integer(names(which.max(table(nearest_neighbors))))
+    # store the prediction
+    test_y[i] <- test_y_single
+  }
+  return(test_y)
+}
+
+# wrapper for a simpler kNN application which accepts a single test point instead of a test set
+knn_classifier_single <- function(x1, x2, y, x1p, x2p, k) {
+  # convert x1, x2 lists to a matrix
+  train_x <- cbind(x1, x2)
+  # convert x1p, x2p to a matrix
+  x1pl <- c(x1p)
+  x2pl <- c(x2p)
+  test_x <- as.matrix(cbind(x1pl, x2pl))
+  knn_classifier(train_x, y, test_x, k)[1]
+}
+```
+
+### Approximation and Sampling
+
+```{r}
+# 0-1 loss function l
+loss_bin <- function(y, yp) y != yp
+
+# generate the set Z of (x', y') with drawn x' from distribution p and predicted y' = g(x')
+gen_Z <- function(g, x1p, x2p) {
+  Z <- tibble(
+    x1p = x1p,
+    x2p = x2p,
+  )
+  # map x' by (x1p, x2p) to y' by g
+  yp <- map_dbl(seq_len(nrow(Z)), function(i) g(Z$x1p[i], Z$x2p[i]))
+  Z <- Z %>%
+    mutate(yp = yp)
+  Z
+}
+
+# metric between functions f and g defined by equation (3)
+dist <- function(Z, f, l) {
+  m <- nrow(Z)
+  pred <- Z %>%
+    rowwise() %>%
+    mutate(pred = f(x1p, x2p)) %>%
+    pull(pred)
+  d <- sum(l(pred, Z$yp)) / m
+  d
+}
+```
+
+### OS
+
+```{r}
+# time the execution of a function
+time_run <- function(f, ...) {
+  start <- Sys.time()
+  f(...)
+  end <- Sys.time()
+  list(
+    time = end - start,
+    result = f(...)
+  )
+}
+
+# if no saved csv file, run the function and save the result to a csv file
+saved_run <- function(f, file, ...) {
+  if (file.exists(file) && !exists("saved_run_debug")) {
+    result <- read_csv(file)
+  } else {
+    result <- f(...)
+    write_csv(result, file)
+  }
+  result
+}
+```
+
+# Enumeration
+
+```{r}
+# generate the set of all multi-subsets of size m from a set of size n given by index 1:n
+# an equivalent problem: generate the set of all tuples of n non-negative integers with sum m
+# (from Homework 3)
+gen_tuples <- function(n, m) {
+  if (n == 1) {
+    return(list(c(m)))
+  } else {
+    v <- list()
+    for (i in 0:m) {
+      v <- c(v, lapply(gen_tuples(n - 1, m - i), function(x) c(i, x)))
+    }
+    return(v)
+  }
+}
+```
+
+```{r}
+# Reporting:
+# 1. the number of teaching sets of that size that you have to search through;
+# 2. number of seconds it takes for that size;
+# 3. d(kNN(D), g) of the best teaching set of that size;
+# 4. plot the best teaching set D-hat in relation to P (i.e. plot both, but use different symbols for D-hat)
+enum_run <- function() {
+  results <- tibble(
+    subset_sz = integer(),
+    subset_n = integer(),
+    time = duration(units = "secs"),
+    d = double(),
+    tuple = character()
+  )
+  for (m in 1:enum_upper) {
+    timed <- function() {
+      # generate tuples for all multi-subsets of pool of size m
+      tuples <- gen_tuples(nrow(pool), m)
+      best_d <- Inf
+      best_tuple <- NULL
+      for (tuple in tuples) {
+        # convert the tuple to a multi-subset of pool
+        subset <- pool[which(tuple > 0), ]
+        # define the kNN classifier g on the multi-subset
+        g <- function(x1p, x2p)
+          knn_classifier_single(subset$x1, subset$x2, subset$y, x1p, x2p, k)
+        # compute the distance d(kNN(D), g)
+        d <- dist(Z, g, loss_bin)
+        # update the best distance
+        if (d < best_d) {
+          best_d <- d
+          best_tuple <- tuple
+        }
+      }
+      list(n = length(tuples), d = best_d, tuple = best_tuple)
+    }
+    r <- time_run(timed)
+    results <- results %>%
+      add_row(
+        subset_sz = m,
+        subset_n = r$result$n,
+        time = r$time,
+        d = r$result$d,
+        tuple = toJSON(r$result$tuple)
+      )
+  }
+  results
+}
+enum_results <- saved_run(enum_run, "enum.csv")
+for (m in 1:enum_upper) {
+  best_tuple <- fromJSON(enum_results$tuple[[m]])
+  best_Dhat <- pool[which(best_tuple > 0), ]
+  print(
+    ggplot() +
+      geom_point(data = pool, aes(x = x1, y = x2, color = factor(y), shape = "P")) +
+      geom_point(data = best_Dhat, aes(x = x1, y = x2, shape = "D"), alpha = 0.5) +
+      ggtitle("Enumeration: Best Teaching Set vs Pool", subtitle = paste0("m = ", m))
+  )
+  ggsave(paste0("enum_m", m, ".svg"))
+}
+enum_results %>% select(-tuple)
+```
+
+# Greedy
+
+```{r}
+# Reporting:
+# 1. the number of teaching sets of that size that you have to search through;
+# 2. number of seconds it takes for that size;
+# 3. d(kNN(D), g) of the best teaching set of that size;
+# 4. plot one figure for the last teaching set D-hat with size n* in relation to P
+greedy_run <- function() {
+  results <- tibble(
+    subset_sz = integer(),
+    subset_n = integer(),
+    time = duration(units = "secs"),
+    d = double(),
+    index = integer()
+  )
+  for (m in 1:greedy_upper) {
+    prev_D <- NULL
+    if (nrow(results) == 0)
+      prev_D <- c()
+    else {
+      prev_D <- unlist(results %>% pull(index))
+      if (is.null(prev_D))
+        stop("prev_D is NULL")
+    }
+    timed <- function(prev_D) {
+      best_d <- Inf
+      idx_l <- c()
+      for (i in 1:nrow(pool)) {
+        D <- c(prev_D, i)
+        subset <- pool[D, ]
+        g <- function(x1p, x2p)
+          knn_classifier_single(subset$x1, subset$x2, subset$y, x1p, x2p, k)
+        d <- dist(Z, g, loss_bin)
+        if (d < best_d) {
+          best_d <- d
+          idx_l <- c(i)
+        } else if (d == best_d)
+          idx_l <- c(idx_l, i)
+      }
+      # find the index with smallest d
+      index_to_add <- sample(idx_l, 1)
+      list(n = nrow(pool), d = best_d, index_to_add = index_to_add)
+    }
+    r <- time_run(timed, prev_D)
+    results <- results %>%
+      add_row(
+        subset_sz = m,
+        subset_n = r$result$n,
+        time = r$time,
+        d = r$result$d,
+        index = r$result$index_to_add
+      )
+  }
+  results
+}
+greedy_results <- saved_run(greedy_run, "greedy.csv")
+indices <- greedy_results %>% pull(index)
+print(
+  ggplot() +
+    geom_point(data = pool, aes(x = x1, y = x2, color = factor(y), shape = "P")) +
+    geom_point(data = pool[indices, ], aes(x = x1, y = x2, shape = "D"), alpha = 0.5) +
+    ggtitle("Greedy: Last Teaching Set vs Pool", subtitle = paste0("m = ", greedy_upper))
+)
+ggsave(paste0("greedy_m", greedy_upper, ".svg"))
+greedy_results
+```
