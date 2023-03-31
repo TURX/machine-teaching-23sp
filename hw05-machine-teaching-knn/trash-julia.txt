@@ -1,0 +1,73 @@
+# generate the set of all multi-subsets of size m from a set of size n given by index 1:n
+# an equivalent problem: generate the set of all tuples of n non-negative integers with sum m
+# (adapted from Homework 3)
+# n: size of tuple
+# m: sum of tuple elements
+# return: a matrix of size m x n, each row is a vector of length m corresponding to a multi-subset
+# using Hose
+
+# function gen_tuples(n, m)
+#   # if (n, m) in keys(cache)
+#   #   return cache[(n, m)]
+#   # end
+
+#   if n == 1
+#       return [m]
+#   elseif n < 0
+#       return []
+#   else  # n > 1        
+#       v = @hose 0:m |> map(x-> begin
+#           temps = gen_tuples(n - 1, m - x)
+#           # prepand one to the left of the matrix
+#           return hcat(x .* ones(size(temps)[1]), temps)
+#       end, _) |>
+#       reduce(vcat, _)
+
+#       # cache[(n, m)] = v
+
+#       return v
+#   end
+# end
+
+function gen_tuples_parity(i)
+  return i % 2 + 1
+end
+
+function gen_tuples(n, m)
+  tuple_cache = [Vector{Vector{Int64}}(), Vector{Vector{Int64}}()]
+  if n == 1
+    return [m]
+  elseif n < 0
+    return []
+  else  # n > 1
+    # for i == 1
+    tuple_cache[gen_tuples_parity(1)] = [[j] for j in 0:m]  # partiy of 1 is 2
+    for i in 2:n
+      empty!(tuple_cache[gen_tuples_parity(i)])
+      print(length(tuple_cache[gen_tuples_parity(i - 1)]))
+      for j in 1:length(tuple_cache[gen_tuples_parity(i - 1)])
+        push!(tuple_cache[gen_tuples_parity(i)], [i; tuple_cache[gen_tuples_parity(i - 1)][m - j + 1]])  # array starts at 1, adding m+j to avoid index 0
+      end
+    end
+    return tuple_cache[gen_tuples_parity(n)]
+  # if m in keys(tuple_cache[parity + 1])
+  #   return tuple_cache[parity + 1][m]
+  # end
+  
+  #   v = []
+  #   for i in 0:m
+  #     for t in gen_tuples(n - 1, m - i)
+  #       push!(v, [i; t])
+  #     end
+  #   end
+  #   tuple_cache[parity + 1][m] = v
+  #   return v
+  end
+end
+
+t = @time gen_tuples(10, 1)
+
+print(t)
+
+
+
