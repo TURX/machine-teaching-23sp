@@ -43,7 +43,7 @@ function plot_subset(subset, title, subset_name)
     [
       scatter(pool, x=:x1, y=:x2, mode="markers", name="pool", marker=attr(color=:y, colorscale="Greens"), hovertemplate="(%{x}, %{y})<br>category: %{marker.color}"),
       scatter(
-        subset, x=:x1, y=:x2, marker=attr(size=:size, sizeref=1, color=:y, colorscale="Reds", opacity=0.8), mode="markers", name=subset_name,
+        subset, x=:x1, y=:x2, marker=attr(size=:size, sizeref=1, color=:y, colorscale="Reds", opacity=0.8), mode="markers+text", name=subset_name,
         text=:id,
         hovertemplate="(%{x}, %{y})<br>category: %{marker.color}<br>order in sequence: %{text}",
       ),
